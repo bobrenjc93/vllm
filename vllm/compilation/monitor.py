@@ -2,8 +2,10 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import contextlib
+import inspect
 import time
 from collections.abc import Generator
+from unittest.mock import patch
 
 from vllm.config import CompilationMode, VllmConfig
 from vllm.logger import init_logger
@@ -12,6 +14,45 @@ logger = init_logger(__name__)
 
 # Shared global so backends.py can read the start time for Dynamo timing.
 torch_compile_start_time: float = 0.0
+
+
+def _make_cached_getsourcelines():
+    _original = inspect.getsourcelines
+    _cache: dict[int, tuple[list[str], int]] = {}
+
+    def _cached(obj):
+        key = id(obj)
+        result = _cache.get(key)
+        if result is None:
+            result = _original(obj)
+            _cache[key] = result
+        return result
+
+    return _cached
+
+
+def _patch_triton_jit_parse():
+    """Patch Triton's JITCallable.parse to cache ASTs by source string."""
+    try:
+        import pickle
+
+        from triton.runtime.jit import JITCallable
+    except ImportError:
+        return None
+
+    _original = JITCallable.parse
+    _cache: dict[str, bytes] = {}
+
+    def _cached_parse(self):
+        src = self._src
+        cached_bytes = _cache.get(src)
+        if cached_bytes is not None:
+            return pickle.loads(cached_bytes)
+        result = _original(self)
+        _cache[src] = pickle.dumps(result)
+        return result
+
+    return patch.object(JITCallable, "parse", _cached_parse)
 
 
 @contextlib.contextmanager
@@ -39,8 +80,15 @@ def monitor_torch_compile(
         depyf_cm = depyf.prepare_debug(path.as_posix())
         depyf_cm.__enter__()
 
+    triton_parse_patch = _patch_triton_jit_parse()
     try:
-        yield
+        with (
+            patch.object(
+                inspect, "getsourcelines", _make_cached_getsourcelines()
+            ),
+            triton_parse_patch or contextlib.nullcontext(),
+        ):
+            yield
     except Exception:
         raise
     else:
