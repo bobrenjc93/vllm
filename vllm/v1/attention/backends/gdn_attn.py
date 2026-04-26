@@ -8,10 +8,10 @@ import torch
 
 from vllm.config import VllmConfig
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
 )
 from vllm.v1.attention.backends.utils import (
     NULL_BLOCK_ID,
@@ -22,14 +22,9 @@ from vllm.v1.attention.backends.utils import (
 from vllm.v1.kv_cache_interface import AttentionSpec, MambaSpec
 
 
-class GDNAttentionBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "GDN_ATTN"
-
-    @staticmethod
-    def get_builder_cls() -> type["GDNAttentionMetadataBuilder"]:
-        return GDNAttentionMetadataBuilder
+class GDNAttentionBackend(ConfiguredAttentionBackend):
+    name = "GDN_ATTN"
+    builder_cls = "GDNAttentionMetadataBuilder"
 
     @classmethod
     def is_ssm(cls) -> bool:

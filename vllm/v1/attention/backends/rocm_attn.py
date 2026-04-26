@@ -18,13 +18,13 @@ from vllm.model_executor.layers.quantization.utils.quant_utils import (
 from vllm.platforms import current_platform
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionLayer,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.ops.chunked_prefill_paged_decode import (
@@ -161,7 +161,21 @@ class RocmAttentionMetadataBuilder(AttentionMetadataBuilder[RocmAttentionMetadat
         return attn_metadata
 
 
-class RocmAttentionBackend(AttentionBackend):
+class RocmAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "ROCM_ATTN"
+    impl_cls: ClassVar[str] = "RocmAttentionImpl"
+    builder_cls: ClassVar[str] = "RocmAttentionMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [
+        32,
+        64,
+        80,
+        96,
+        128,
+        160,
+        192,
+        224,
+        256,
+    ]
     supported_dtypes: ClassVar[list[torch.dtype]] = [
         torch.float16,
         torch.bfloat16,
@@ -189,10 +203,6 @@ class RocmAttentionBackend(AttentionBackend):
         return [MultipleOf(16)]
 
     @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [32, 64, 80, 96, 128, 160, 192, 224, 256]
-
-    @classmethod
     def supports_mm_prefix(cls) -> bool:
         return True
 
@@ -208,14 +218,6 @@ class RocmAttentionBackend(AttentionBackend):
         return True
 
     forward_includes_kv_cache_update: bool = False
-
-    @staticmethod
-    def get_name() -> str:
-        return "ROCM_ATTN"
-
-    @staticmethod
-    def get_impl_cls() -> type["RocmAttentionImpl"]:
-        return RocmAttentionImpl
 
     @classmethod
     def supports_attn_type(cls, attn_type: str) -> bool:
@@ -247,10 +249,6 @@ class RocmAttentionBackend(AttentionBackend):
     @staticmethod
     def use_cascade_attention(*args, **kwargs) -> bool:
         return False
-
-    @staticmethod
-    def get_builder_cls() -> type["RocmAttentionMetadataBuilder"]:
-        return RocmAttentionMetadataBuilder
 
 
 class RocmAttentionImpl(AttentionImpl):

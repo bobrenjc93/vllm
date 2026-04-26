@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Attention layer with PagedAttention and Triton prefix prefill."""
 
+from typing import ClassVar
+
 import torch
 
 from vllm import _custom_ops as ops
@@ -17,13 +19,16 @@ from vllm.v1.attention.backends.rocm_attn import (
     RocmAttentionBackend,
     RocmAttentionImpl,
     RocmAttentionMetadata,
-    RocmAttentionMetadataBuilder,
 )
 
 logger = init_logger(__name__)
 
 
 class RocmAiterUnifiedAttentionBackend(RocmAttentionBackend):
+    name: ClassVar[str] = "ROCM_AITER_UNIFIED_ATTN"
+    impl_cls: ClassVar[str] = "RocmAiterUnifiedAttentionImpl"
+    builder_cls: ClassVar[str] = "RocmAttentionMetadataBuilder"
+
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [MultipleOf(16)]
@@ -60,14 +65,6 @@ class RocmAiterUnifiedAttentionBackend(RocmAttentionBackend):
     forward_includes_kv_cache_update: bool = False
 
     @staticmethod
-    def get_name() -> str:
-        return "ROCM_AITER_UNIFIED_ATTN"
-
-    @staticmethod
-    def get_impl_cls() -> type["RocmAiterUnifiedAttentionImpl"]:
-        return RocmAiterUnifiedAttentionImpl
-
-    @staticmethod
     def get_kv_cache_shape(
         num_blocks: int,
         block_size: int,
@@ -82,10 +79,6 @@ class RocmAiterUnifiedAttentionBackend(RocmAttentionBackend):
     @staticmethod
     def use_cascade_attention(*args, **kwargs) -> bool:
         return False
-
-    @staticmethod
-    def get_builder_cls() -> type["RocmAttentionMetadataBuilder"]:
-        return RocmAttentionMetadataBuilder
 
     @classmethod
     def supports_attn_type(cls, attn_type: str) -> bool:

@@ -12,12 +12,12 @@ from vllm.logger import init_logger
 from vllm.platforms import CpuArchEnum, current_platform
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionImpl,
     AttentionLayer,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
 )
 from vllm.v1.attention.backends.utils import (
     split_decodes_and_prefills,
@@ -29,20 +29,28 @@ logger = init_logger(__name__)
 _CPU_ARCH_PREFER_MIXED_BATCH = (CpuArchEnum.X86, CpuArchEnum.ARM, CpuArchEnum.S390X)
 
 
-class CPUAttentionBackend(AttentionBackend):
+class CPUAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "CPU_ATTN"
+    impl_cls: ClassVar[str] = "CPUAttentionBackendImpl"
+    builder_cls: ClassVar[str] = "CPUAttentionMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [
+        32,
+        64,
+        80,
+        96,
+        112,
+        128,
+        160,
+        192,
+        224,
+        256,
+        512,
+    ]
     supported_dtypes: ClassVar[list[torch.dtype]] = [
         torch.float16,
         torch.bfloat16,
         torch.float32,
     ]
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [32, 64, 80, 96, 112, 128, 160, 192, 224, 256, 512]
-
-    @staticmethod
-    def get_name() -> str:
-        return "CPU_ATTN"
 
     @classmethod
     def supports_attn_type(cls, attn_type: str) -> bool:
@@ -54,14 +62,6 @@ class CPUAttentionBackend(AttentionBackend):
             AttentionType.ENCODER_ONLY,
             AttentionType.ENCODER_DECODER,
         )
-
-    @staticmethod
-    def get_impl_cls() -> type["CPUAttentionBackendImpl"]:
-        return CPUAttentionBackendImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["CPUAttentionMetadataBuilder"]:
-        return CPUAttentionMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(

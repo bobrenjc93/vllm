@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -340,6 +341,63 @@ class AttentionBackend(ABC):
     @classmethod
     def is_ssm(cls) -> bool:
         return False
+
+
+class ConfiguredAttentionBackend(AttentionBackend):
+    """Attention backend whose constant accessors are class attributes."""
+
+    name: ClassVar[str | None] = None
+    impl_cls: ClassVar[type[Any] | str | None] = None
+    builder_cls: ClassVar[type[Any] | str | None] = None
+    metadata_cls: ClassVar[type[Any] | str | None] = None
+    supported_head_sizes: ClassVar[list[int]] = []
+
+    @classmethod
+    def _resolve_class_attr(cls, attr_name: str, attr_description: str) -> type[Any]:
+        attr_value = getattr(cls, attr_name)
+        if attr_value is None:
+            raise NotImplementedError(
+                f"{cls.__name__}.{attr_name} must be set to provide "
+                f"the backend {attr_description} class"
+            )
+        if isinstance(attr_value, str):
+            owner_module_name = cls.__module__
+            for owner_cls in cls.__mro__:
+                if attr_name in owner_cls.__dict__:
+                    owner_module_name = owner_cls.__module__
+                    break
+            module = sys.modules[owner_module_name]
+            try:
+                attr_value = getattr(module, attr_value)
+            except AttributeError as exc:
+                raise NotImplementedError(
+                    f"{cls.__name__}.{attr_name} references unknown "
+                    f"{attr_description} class {attr_value!r}"
+                ) from exc
+            setattr(cls, attr_name, attr_value)
+        return attr_value
+
+    @classmethod
+    def get_name(cls) -> str:
+        if cls.name is None:
+            raise NotImplementedError(f"{cls.__name__}.name must be set")
+        return cls.name
+
+    @classmethod
+    def get_impl_cls(cls) -> type["AttentionImplBase"]:
+        return cls._resolve_class_attr("impl_cls", "implementation")
+
+    @classmethod
+    def get_builder_cls(cls) -> type["AttentionMetadataBuilder"]:
+        return cls._resolve_class_attr("builder_cls", "metadata builder")
+
+    @classmethod
+    def get_metadata_cls(cls) -> type["AttentionMetadata"]:
+        return cls._resolve_class_attr("metadata_cls", "metadata")
+
+    @classmethod
+    def get_supported_head_sizes(cls) -> list[int]:
+        return list(cls.supported_head_sizes)
 
 
 class AttentionMetadata:

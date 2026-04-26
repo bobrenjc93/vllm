@@ -18,13 +18,13 @@ from vllm.utils.math_utils import cdiv
 from vllm.utils.platform_utils import num_compute_units
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionLayer,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.utils import (
@@ -748,7 +748,11 @@ class AiterFlashAttentionMetadataBuilder(
         return False
 
 
-class AiterFlashAttentionBackend(AttentionBackend):
+class AiterFlashAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "FLASH_ATTN"
+    impl_cls: ClassVar[str] = "AiterFlashAttentionImpl"
+    builder_cls: ClassVar[str] = "AiterFlashAttentionMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [64, 128, 256]
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -772,23 +776,7 @@ class AiterFlashAttentionBackend(AttentionBackend):
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [16, 32]
 
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [64, 128, 256]
-
     forward_includes_kv_cache_update: bool = False
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASH_ATTN"
-
-    @staticmethod
-    def get_impl_cls() -> type["AiterFlashAttentionImpl"]:
-        return AiterFlashAttentionImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["AiterFlashAttentionMetadataBuilder"]:
-        return AiterFlashAttentionMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(

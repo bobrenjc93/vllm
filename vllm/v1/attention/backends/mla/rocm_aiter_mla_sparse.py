@@ -16,12 +16,12 @@ from vllm.model_executor.layers.attention.mla_attention import (
 )
 from vllm.triton_utils import tl, triton
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionLayer,
     AttentionMetadata,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
     SparseMLAAttentionImpl,
 )
@@ -80,7 +80,11 @@ def fetch_id_to_ragged_triton(
     )
 
 
-class ROCMAiterMLASparseBackend(AttentionBackend):
+class ROCMAiterMLASparseBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "ROCM_AITER_MLA_SPARSE"
+    metadata_cls: ClassVar[str] = "ROCMAiterMLASparseMetadata"
+    impl_cls: ClassVar[str] = "ROCMAiterMLASparseImpl"
+    builder_cls: ClassVar[str] = "ROCMAiterMLASparseMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -91,22 +95,6 @@ class ROCMAiterMLASparseBackend(AttentionBackend):
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [1]
-
-    @staticmethod
-    def get_name() -> str:
-        return "ROCM_AITER_MLA_SPARSE"
-
-    @staticmethod
-    def get_metadata_cls() -> type["ROCMAiterMLASparseMetadata"]:
-        return ROCMAiterMLASparseMetadata
-
-    @staticmethod
-    def get_builder_cls() -> type["ROCMAiterMLASparseMetadataBuilder"]:
-        return ROCMAiterMLASparseMetadataBuilder
-
-    @staticmethod
-    def get_impl_cls() -> type["ROCMAiterMLASparseImpl"]:
-        return ROCMAiterMLASparseImpl
 
     @staticmethod
     def get_kv_cache_shape(

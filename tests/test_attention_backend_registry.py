@@ -1,14 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+import pytest
+
 from vllm.v1.attention.backend import (
     AttentionBackend,
     AttentionImpl,
+    ConfiguredAttentionBackend,
 )
 from vllm.v1.attention.backends.registry import (
     AttentionBackendEnum,
     MambaAttentionBackendEnum,
     register_backend,
 )
+
+pytestmark = pytest.mark.skip_global_cleanup
 
 
 class CustomAttentionImpl(AttentionImpl):
@@ -42,6 +47,34 @@ class CustomAttentionBackend(AttentionBackend):
     def get_required_kv_cache_layout():
         """Mock KV cache layout."""
         return None
+
+
+class CustomConfiguredMetadata:
+    """Mock metadata class for configured backend testing."""
+
+
+class CustomConfiguredBuilder:
+    """Mock builder class for configured backend testing."""
+
+
+class CustomConfiguredAttentionBackend(ConfiguredAttentionBackend):
+    """Mock custom attention backend using class attribute configuration."""
+
+    name = "CONFIGURED_CUSTOM"
+    impl_cls = "CustomAttentionImpl"
+    builder_cls = "CustomConfiguredBuilder"
+    metadata_cls = "CustomConfiguredMetadata"
+    supported_head_sizes = [64, 128]
+
+    @staticmethod
+    def get_kv_cache_shape(
+        num_blocks: int,
+        block_size: int,
+        num_kv_heads: int,
+        head_size: int,
+        cache_dtype_str: str = "auto",
+    ) -> tuple[int, ...]:
+        return (num_blocks, block_size, num_kv_heads, head_size)
 
 
 class CustomMambaAttentionImpl(AttentionImpl):
@@ -124,6 +157,19 @@ def test_register_custom_backend_with_class_path():
     backend_cls = AttentionBackendEnum.CUSTOM.get_class()
     assert backend_cls.get_name() == "CUSTOM"
     assert backend_cls.get_impl_cls() == CustomAttentionImpl
+
+
+def test_configured_attention_backend_class_attributes():
+    assert CustomConfiguredAttentionBackend.get_name() == "CONFIGURED_CUSTOM"
+    assert CustomConfiguredAttentionBackend.get_impl_cls() is CustomAttentionImpl
+    assert CustomConfiguredAttentionBackend.get_builder_cls() is CustomConfiguredBuilder
+    assert (
+        CustomConfiguredAttentionBackend.get_metadata_cls()
+        is CustomConfiguredMetadata
+    )
+    assert CustomConfiguredAttentionBackend.get_supported_head_sizes() == [64, 128]
+    assert CustomConfiguredAttentionBackend.supports_head_size(64)
+    assert not CustomConfiguredAttentionBackend.supports_head_size(96)
 
 
 def test_mamba_custom_is_not_alias_of_any_backend():

@@ -6,10 +6,10 @@ import torch
 
 from vllm.config import VllmConfig
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
 )
 from vllm.v1.attention.backends.utils import (
     mamba_get_block_table_tensor,
@@ -18,14 +18,9 @@ from vllm.v1.attention.backends.utils import (
 from vllm.v1.kv_cache_interface import AttentionSpec, MambaSpec
 
 
-class LinearAttentionBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "LINEAR_ATTN"
-
-    @staticmethod
-    def get_builder_cls() -> type["LinearAttentionMetadataBuilder"]:
-        return LinearAttentionMetadataBuilder
+class LinearAttentionBackend(ConfiguredAttentionBackend):
+    name = "LINEAR_ATTN"
+    builder_cls = "LinearAttentionMetadataBuilder"
 
     @classmethod
     def is_ssm(cls) -> bool:

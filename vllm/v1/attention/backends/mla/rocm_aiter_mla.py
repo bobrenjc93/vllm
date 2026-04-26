@@ -28,6 +28,10 @@ from vllm.v1.kv_cache_interface import AttentionSpec
 
 
 class AiterMLABackend(MLACommonBackend):
+    name: ClassVar[str] = "ROCM_AITER_MLA"
+    impl_cls: ClassVar[str] = "AiterMLAImpl"
+    builder_cls: ClassVar[str] = "AiterMLAMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = []
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -38,10 +42,6 @@ class AiterMLABackend(MLACommonBackend):
         "fp8_e5m2",
     ]
 
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return []
-
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         # The aiter MLA decode kernel always operates with page_size=1
@@ -49,18 +49,6 @@ class AiterMLABackend(MLACommonBackend):
         # We support any kernel_block_size by expanding block-level indices
         # into per-token flat indices in the metadata builder.
         return [MultipleOf(1)]
-
-    @staticmethod
-    def get_name() -> str:
-        return "ROCM_AITER_MLA"
-
-    @staticmethod
-    def get_impl_cls() -> type["AiterMLAImpl"]:
-        return AiterMLAImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["AiterMLAMetadataBuilder"]:
-        return AiterMLAMetadataBuilder
 
 
 @dataclass

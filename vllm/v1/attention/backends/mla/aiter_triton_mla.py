@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from typing import ClassVar
+
 from vllm.v1.attention.backends.mla.rocm_aiter_mla import AiterMLABackend, AiterMLAImpl
 
 
 class AiterTritonMLABackend(AiterMLABackend):
-    @staticmethod
-    def get_name() -> str:
-        return "AITER_TRITON_MLA"
-
-    @staticmethod
-    def get_impl_cls() -> type["AiterTritonMLAImpl"]:
-        return AiterTritonMLAImpl
+    name: ClassVar[str] = "AITER_TRITON_MLA"
+    impl_cls: ClassVar[str] = "AiterTritonMLAImpl"
 
 
 class AiterTritonMLAImpl(AiterMLAImpl):

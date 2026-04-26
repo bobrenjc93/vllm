@@ -20,13 +20,13 @@ from vllm.platforms.interface import DeviceCapability
 from vllm.utils.math_utils import next_power_of_2
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionLayer,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.utils import get_kv_cache_layout
@@ -263,7 +263,10 @@ class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMet
         return attn_metadata
 
 
-class TritonAttentionBackend(AttentionBackend):
+class TritonAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "TRITON_ATTN"
+    impl_cls: ClassVar[str] = "TritonAttentionImpl"
+    builder_cls: ClassVar[str] = "TritonAttentionMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [
         torch.float16,
         torch.bfloat16,
@@ -292,17 +295,9 @@ class TritonAttentionBackend(AttentionBackend):
 
     forward_includes_kv_cache_update: bool = False
 
-    @staticmethod
-    def get_name() -> str:
-        return "TRITON_ATTN"
-
     @classmethod
     def supports_batch_invariance(cls) -> bool:
         return True
-
-    @staticmethod
-    def get_impl_cls() -> type["TritonAttentionImpl"]:
-        return TritonAttentionImpl
 
     @staticmethod
     def get_kv_cache_shape(
@@ -352,10 +347,6 @@ class TritonAttentionBackend(AttentionBackend):
     @staticmethod
     def use_cascade_attention(*args, **kwargs) -> bool:
         return False
-
-    @staticmethod
-    def get_builder_cls() -> type["TritonAttentionMetadataBuilder"]:
-        return TritonAttentionMetadataBuilder
 
     @classmethod
     def supports_head_size(cls, head_size: int) -> bool:

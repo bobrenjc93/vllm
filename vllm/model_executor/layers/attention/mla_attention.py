@@ -259,6 +259,7 @@ from vllm.v1.attention.backend import (
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MLAAttentionImpl,
     SparseMLAAttentionImpl,
 )
@@ -1200,14 +1201,10 @@ class _DecodeConcatQuantFP8(QuantFP8):
 CUDNN_WORKSPACE_SIZE = 12800
 
 
-class MLACommonBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "TRITON_MLA"
-
-    @staticmethod
-    def get_builder_cls() -> type["MLACommonMetadataBuilder"]:
-        return MLACommonMetadataBuilder
+class MLACommonBackend(ConfiguredAttentionBackend):
+    name = "TRITON_MLA"
+    builder_cls = "MLACommonMetadataBuilder"
+    supported_head_sizes = [320, 576]
 
     @staticmethod
     def get_kv_cache_shape(
@@ -1229,10 +1226,6 @@ class MLACommonBackend(AttentionBackend):
             # layout, signaling cross-layer allocation is unsupported.
             return (0, 1, 2, 3)
         return (0, 1, 2)
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [320, 576]
 
     @classmethod
     def is_mla(cls) -> bool:

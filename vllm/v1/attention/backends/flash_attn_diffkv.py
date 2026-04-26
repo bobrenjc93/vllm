@@ -27,20 +27,15 @@ from .flash_attn import (
 
 
 class FlashAttentionDiffKVBackend(FlashAttentionBackend):
+    name = "FLASH_ATTN_DIFFKV"
+    impl_cls = "FlashAttentionDiffKVImpl"
+
     # Default to 128 for this backend
     head_size_v: int = 128
 
     @classmethod
     def set_head_size_v(cls, head_size_v: int) -> None:
         cls.head_size_v = head_size_v
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASH_ATTN_DIFFKV"
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashAttentionImpl"]:
-        return FlashAttentionDiffKVImpl
 
     # Do not modify the interface of get_kv_cache_shape,
     # but consider head_size_v when returning result.
