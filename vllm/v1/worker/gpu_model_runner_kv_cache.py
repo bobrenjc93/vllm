@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from copy import deepcopy
 from functools import reduce
-from typing import Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import torch
 import torch.distributed
@@ -69,6 +69,13 @@ logger = init_logger(__name__)
 
 
 class GPUModelRunnerKVCacheMixin:
+    if TYPE_CHECKING:
+
+        def __getattr__(self, name: str) -> Any: ...
+
+    _mamba_copy_bufs: Any
+    reorder_batch_threshold: int | None
+
     @torch.inference_mode()
     def init_fp8_kv_scales(self) -> None:
         """

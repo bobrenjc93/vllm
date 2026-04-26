@@ -87,6 +87,16 @@ class ExecuteModelState(NamedTuple):
 
 
 class GPUModelRunnerExecutionMixin:
+    if TYPE_CHECKING:
+
+        def __getattr__(self, name: str) -> Any: ...
+
+    execute_model_state: ExecuteModelState | None
+    kv_connector_output: Any
+    _num_valid_draft_tokens: torch.Tensor | None
+    calculate_kv_scales: bool
+    layerwise_nvtx_hooks_registered: bool
+
     def _model_forward(
         self,
         input_ids: torch.Tensor | None = None,

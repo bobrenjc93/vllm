@@ -126,6 +126,15 @@ class EncoderTimingStats:
 
 
 class GPUModelRunnerInputBuilderMixin:
+    if TYPE_CHECKING:
+
+        def __getattr__(self, name: str) -> Any: ...
+
+    _mamba_copy_bufs: mamba_utils.MambaCopyBuffers | None
+    _init_block_sizes: list[int]
+    _init_kernel_block_sizes: list[int]
+    input_batch: InputBatch
+
     def _get_positions(self, num_tokens: Any):
         if isinstance(num_tokens, int):
             if self.uses_mrope:

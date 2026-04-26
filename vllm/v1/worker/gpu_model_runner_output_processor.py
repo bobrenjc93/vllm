@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -204,6 +204,17 @@ class AsyncGPUPoolingModelRunnerOutput(AsyncModelRunnerOutput):
 
 
 class GPUModelRunnerOutputProcessorMixin:
+    if TYPE_CHECKING:
+
+        def __getattr__(self, name: str) -> Any: ...
+
+    async_output_copy_stream: torch.cuda.Stream | None
+    execute_model_state: Any
+    kv_connector_output: KVConnectorOutput | None
+    _draft_token_ids: list[list[int]] | torch.Tensor | None
+    _draft_token_req_ids: list[str] | None
+    valid_sampled_token_count_gpu: torch.Tensor | None
+
     def _get_or_create_async_output_copy_stream(self) -> torch.cuda.Stream:
         stream = self.async_output_copy_stream
         if stream is None:
