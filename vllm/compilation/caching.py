@@ -220,11 +220,15 @@ class VllmSerializableFunction(SerializableCallable):  # type: ignore[misc]
 
         graph_reducer_override = GraphPickler.reducer_override
 
+        _PASSTHROUGH = (int, float, str, bytes, bool, type(None))
+
         def _graph_reducer_override(
             self: GraphPickler, obj: Any
         ) -> tuple[Callable[..., Any], tuple[Any, ...]] | Any:
+            if type(obj) in _PASSTHROUGH:
+                return NotImplemented
             if (
-                inspect.isclass(obj)
+                isinstance(obj, type)
                 and issubclass(obj, sympy.Function)
                 and hasattr(obj, "_torch_unpickler")
             ):
