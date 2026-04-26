@@ -23,7 +23,6 @@
 # limitations under the License.
 """Inference-only Qwen3 model compatible with HuggingFace weights."""
 
-from collections.abc import Iterable
 from typing import Any
 
 import torch
@@ -44,14 +43,14 @@ from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization import QuantizationConfig
 from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
-from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.config import set_default_rope_theta
 from vllm.v1.attention.backend import AttentionType
 
 from .interfaces import SupportsEagle, SupportsEagle3, SupportsLoRA, SupportsPP
 from .qwen2 import Qwen2MLP as Qwen3MLP
 from .qwen2 import Qwen2Model
-from .utils import AutoWeightsLoader, PPMissingLayer, extract_layer_index, maybe_prefix
+from .standard_decoder import StandardCausalLMMixin, StandardDecoderLayerMixin
+from .utils import PPMissingLayer, extract_layer_index, maybe_prefix
 
 logger = init_logger(__name__)
 
@@ -162,7 +161,7 @@ class Qwen3Attention(nn.Module):
         return output
 
 
-class Qwen3DecoderLayer(nn.Module):
+class Qwen3DecoderLayer(StandardDecoderLayerMixin, nn.Module):
     def __init__(
         self,
         config: Qwen3Config,
@@ -213,28 +212,6 @@ class Qwen3DecoderLayer(nn.Module):
             config.hidden_size, eps=config.rms_norm_eps
         )
 
-    def forward(
-        self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        residual: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Self Attention
-        if residual is None:
-            residual = hidden_states
-            hidden_states = self.input_layernorm(hidden_states)
-        else:
-            hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-        )
-
-        # Fully Connected
-        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
-        hidden_states = self.mlp(hidden_states)
-        return hidden_states, residual
-
 
 ALL_DECODER_LAYER_TYPES = {
     "attention": Qwen3DecoderLayer,
@@ -259,7 +236,12 @@ class Qwen3Model(Qwen2Model):
 
 
 class Qwen3ForCausalLM(
-    nn.Module, SupportsLoRA, SupportsPP, SupportsEagle, SupportsEagle3
+    StandardCausalLMMixin,
+    nn.Module,
+    SupportsLoRA,
+    SupportsPP,
+    SupportsEagle,
+    SupportsEagle3,
 ):
     packed_modules_mapping = {
         "qkv_proj": [
@@ -309,32 +291,3 @@ class Qwen3ForCausalLM(
         self.make_empty_intermediate_tensors = (
             self.model.make_empty_intermediate_tensors
         )
-
-    def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
-        return self.model.embed_input_ids(input_ids)
-
-    def forward(
-        self,
-        input_ids: torch.Tensor | None,
-        positions: torch.Tensor,
-        intermediate_tensors: IntermediateTensors | None = None,
-        inputs_embeds: torch.Tensor | None = None,
-    ) -> torch.Tensor | IntermediateTensors:
-        hidden_states = self.model(
-            input_ids, positions, intermediate_tensors, inputs_embeds
-        )
-        return hidden_states
-
-    def compute_logits(
-        self,
-        hidden_states: torch.Tensor,
-    ) -> torch.Tensor | None:
-        logits = self.logits_processor(self.lm_head, hidden_states)
-        return logits
-
-    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        loader = AutoWeightsLoader(
-            self,
-            skip_prefixes=(["lm_head."] if self.config.tie_word_embeddings else None),
-        )
-        return loader.load_weights(weights)

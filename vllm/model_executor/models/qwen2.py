@@ -25,8 +25,6 @@
 # limitations under the License.
 """Inference-only Qwen2 model compatible with HuggingFace weights."""
 
-from collections.abc import Iterable
-from itertools import islice
 from typing import Any
 
 import torch
@@ -52,30 +50,25 @@ from vllm.model_executor.layers.quantization import QuantizationConfig
 from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead,
-    VocabParallelEmbedding,
-)
-from vllm.model_executor.model_loader.weight_utils import (
-    default_weight_loader,
-    maybe_remap_kv_scale_name,
 )
 from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.config import is_interleaved, set_default_rope_theta
 from vllm.v1.attention.backend import AttentionType
 
 from .interfaces import (
-    EagleModelMixin,
     SupportsEagle,
     SupportsEagle3,
     SupportsLoRA,
     SupportsPP,
 )
+from .standard_decoder import (
+    StandardCausalLMMixin,
+    StandardDecoderLayerMixin,
+    StandardDecoderModel,
+)
 from .utils import (
-    AutoWeightsLoader,
     PPMissingLayer,
     extract_layer_index,
-    is_pp_missing_parameter,
-    make_empty_intermediate_tensors_factory,
-    make_layers,
     maybe_prefix,
 )
 
@@ -236,7 +229,7 @@ class Qwen2Attention(nn.Module):
         return output
 
 
-class Qwen2DecoderLayer(nn.Module):
+class Qwen2DecoderLayer(StandardDecoderLayerMixin, nn.Module):
     def __init__(
         self,
         config: Qwen2Config,
@@ -289,28 +282,6 @@ class Qwen2DecoderLayer(nn.Module):
             config.hidden_size, eps=config.rms_norm_eps
         )
 
-    def forward(
-        self,
-        positions: torch.Tensor,
-        hidden_states: torch.Tensor,
-        residual: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Self Attention
-        if residual is None:
-            residual = hidden_states
-            hidden_states = self.input_layernorm(hidden_states)
-        else:
-            hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        hidden_states = self.self_attn(
-            positions=positions,
-            hidden_states=hidden_states,
-        )
-
-        # Fully Connected
-        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
-        hidden_states = self.mlp(hidden_states)
-        return hidden_states, residual
-
 
 def qwen_2_model_invariants(
     input_ids: torch.Tensor,
@@ -355,7 +326,7 @@ def qwen_2_model_invariants(
     },
     shape_invariants=qwen_2_model_invariants,
 )
-class Qwen2Model(nn.Module, EagleModelMixin):
+class Qwen2Model(StandardDecoderModel):
     def __init__(
         self,
         *,
@@ -363,8 +334,6 @@ class Qwen2Model(nn.Module, EagleModelMixin):
         prefix: str = "",
         decoder_layer_type: type[nn.Module] = Qwen2DecoderLayer,
     ):
-        super().__init__()
-
         config = vllm_config.model_config.hf_config.get_text_config()
         cache_config = vllm_config.cache_config
         quant_config = vllm_config.quant_config
@@ -381,151 +350,29 @@ class Qwen2Model(nn.Module, EagleModelMixin):
                 )
             )
 
-        self.config = config
-        self.quant_config = quant_config
-        self.vocab_size = config.vocab_size
-
-        if get_pp_group().is_first_rank or (
-            config.tie_word_embeddings and get_pp_group().is_last_rank
-        ):
-            self.embed_tokens = VocabParallelEmbedding(
-                config.vocab_size,
-                config.hidden_size,
-                quant_config=quant_config,
-                prefix=f"{prefix}.embed_tokens",
-            )
-        else:
-            self.embed_tokens = PPMissingLayer()
-
-        self.start_layer, self.end_layer, self.layers = make_layers(
-            config.num_hidden_layers,
-            lambda prefix: decoder_layer_type(
+        super().__init__(
+            vllm_config=vllm_config,
+            config=config,
+            layer_factory=lambda prefix: decoder_layer_type(
                 config=config,
                 cache_config=cache_config,
                 quant_config=quant_config,
                 prefix=prefix,
             ),
-            prefix=f"{prefix}.layers",
+            prefix=prefix,
+            embed_tokens_prefix=f"{prefix}.embed_tokens",
+            load_weights_ignore_missing=True,
+            named_parameters_remove_duplicate=False,
         )
-
-        self.make_empty_intermediate_tensors = make_empty_intermediate_tensors_factory(
-            ["hidden_states", "residual"], config.hidden_size
-        )
-        if get_pp_group().is_last_rank:
-            self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        else:
-            self.norm = PPMissingLayer()
-
-    def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
-        return self.embed_tokens(input_ids)
-
-    def forward(
-        self,
-        input_ids: torch.Tensor | None,
-        positions: torch.Tensor,
-        intermediate_tensors: IntermediateTensors | None = None,
-        inputs_embeds: torch.Tensor | None = None,
-    ) -> torch.Tensor | IntermediateTensors:
-        if get_pp_group().is_first_rank:
-            if inputs_embeds is not None:
-                hidden_states = inputs_embeds
-            else:
-                hidden_states = self.embed_input_ids(input_ids)
-            residual = None
-        else:
-            assert intermediate_tensors is not None
-            hidden_states = intermediate_tensors["hidden_states"]
-            residual = intermediate_tensors["residual"]
-
-        aux_hidden_states = self._maybe_add_hidden_state([], 0, hidden_states, residual)
-        for idx, layer in enumerate(
-            islice(self.layers, self.start_layer, self.end_layer)
-        ):
-            hidden_states, residual = layer(positions, hidden_states, residual)
-            self._maybe_add_hidden_state(
-                aux_hidden_states, idx + 1, hidden_states, residual
-            )
-
-        if not get_pp_group().is_last_rank:
-            return IntermediateTensors(
-                {"hidden_states": hidden_states, "residual": residual}
-            )
-
-        hidden_states, _ = self.norm(hidden_states, residual)
-
-        if len(aux_hidden_states) > 0:
-            return hidden_states, aux_hidden_states
-
-        return hidden_states
-
-    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            ("qkv_proj", "q_proj", "q"),
-            ("qkv_proj", "k_proj", "k"),
-            ("qkv_proj", "v_proj", "v"),
-            ("gate_up_proj", "gate_proj", 0),
-            ("gate_up_proj", "up_proj", 1),
-        ]
-        params_dict = dict(self.named_parameters(remove_duplicate=False))
-        loaded_params: set[str] = set()
-        for name, loaded_weight in weights:
-            if "rotary_emb.inv_freq" in name:
-                continue
-            if self.quant_config is not None and (
-                scale_name := self.quant_config.get_cache_scale(name)
-            ):
-                # Loading kv cache quantization scales
-                param = params_dict[scale_name]
-                weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                loaded_weight = (
-                    loaded_weight if loaded_weight.dim() == 0 else loaded_weight[0]
-                )
-                weight_loader(param, loaded_weight)
-                loaded_params.add(scale_name)
-                continue
-            for param_name, weight_name, shard_id in stacked_params_mapping:
-                if weight_name not in name:
-                    continue
-                name = name.replace(weight_name, param_name)
-                # Skip loading extra bias for GPTQ models.
-                if name.endswith(".bias") and name not in params_dict:
-                    continue
-                if is_pp_missing_parameter(name, self):
-                    continue
-                if name.endswith("scale"):
-                    # Remapping the name of FP8 kv-scale.
-                    name = maybe_remap_kv_scale_name(name, params_dict)
-                    if name is None:
-                        continue
-                param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                if weight_loader == default_weight_loader:
-                    weight_loader(param, loaded_weight)
-                else:
-                    weight_loader(param, loaded_weight, shard_id)
-                break
-            else:
-                # Skip loading extra bias for GPTQ models.
-                if name.endswith(".bias") and name not in params_dict:
-                    continue
-                # Remapping the name of FP8 kv-scale.
-                name = maybe_remap_kv_scale_name(name, params_dict)
-                if name is None:
-                    continue
-                if is_pp_missing_parameter(name, self):
-                    continue
-                if name not in params_dict:
-                    continue
-                param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                weight_loader(param, loaded_weight)
-            loaded_params.add(name)
-        return loaded_params
 
 
 class Qwen2ForCausalLM(
-    nn.Module, SupportsLoRA, SupportsPP, SupportsEagle, SupportsEagle3
+    StandardCausalLMMixin,
+    nn.Module,
+    SupportsLoRA,
+    SupportsPP,
+    SupportsEagle,
+    SupportsEagle3,
 ):
     packed_modules_mapping = {
         "qkv_proj": [
@@ -569,32 +416,3 @@ class Qwen2ForCausalLM(
         self.make_empty_intermediate_tensors = (
             self.model.make_empty_intermediate_tensors
         )
-
-    def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
-        return self.model.embed_input_ids(input_ids)
-
-    def forward(
-        self,
-        input_ids: torch.Tensor | None,
-        positions: torch.Tensor,
-        intermediate_tensors: IntermediateTensors | None = None,
-        inputs_embeds: torch.Tensor | None = None,
-    ) -> torch.Tensor | IntermediateTensors:
-        hidden_states = self.model(
-            input_ids, positions, intermediate_tensors, inputs_embeds
-        )
-        return hidden_states
-
-    def compute_logits(
-        self,
-        hidden_states: torch.Tensor,
-    ) -> torch.Tensor | None:
-        logits = self.logits_processor(self.lm_head, hidden_states)
-        return logits
-
-    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        loader = AutoWeightsLoader(
-            self,
-            skip_prefixes=(["lm_head."] if self.config.tie_word_embeddings else None),
-        )
-        return loader.load_weights(weights)
