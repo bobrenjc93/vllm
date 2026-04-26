@@ -1,7 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-import itertools
+from __future__ import annotations
 
+import itertools
+from typing import Any
+
+from vllm.v1.core.encoder_cache_manager import (
+    EncoderCacheManager,
+    EncoderDecoderCacheManager,
+)
 from vllm.v1.core.kv_cache_manager import KVCacheBlocks
 from vllm.v1.core.sched.output import CachedRequestData
 from vllm.v1.request import Request
@@ -9,6 +16,17 @@ from vllm.v1.spec_decode.metrics import SpecDecodingStats
 
 
 class SchedulerBudgetMixin:
+    cache_config: Any
+    ec_connector: Any | None
+    encoder_cache_manager: EncoderCacheManager | EncoderDecoderCacheManager
+    is_encoder_decoder: bool
+    log_stats: bool
+    num_spec_tokens: int
+    prev_step_scheduled_req_ids: set[str]
+    scheduler_config: Any
+    use_eagle: bool
+    use_pp: bool
+
     def _mamba_block_aligned_split(
         self,
         request: Request,

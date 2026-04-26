@@ -1,10 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from __future__ import annotations
+
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import replace
-from typing import Any
+from typing import Any, Protocol, cast
 
+from vllm.v1.core.encoder_cache_manager import (
+    EncoderCacheManager,
+    EncoderDecoderCacheManager,
+)
+from vllm.v1.core.kv_cache_manager import KVCacheManager
 from vllm.v1.core.sched.interface import PauseState
 from vllm.v1.core.sched.request_queue import RequestQueue, SchedulingPolicy
 from vllm.v1.core.sched.utils import remove_all
@@ -12,7 +19,28 @@ from vllm.v1.engine import EngineCoreEventType
 from vllm.v1.request import Request, RequestStatus, StreamingUpdate
 
 
+class _SchedulerQueueHost(Protocol):
+    def _connector_finished(
+        self, request: Request
+    ) -> tuple[bool, dict[str, Any] | None]: ...
+
+
 class SchedulerQueueMixin:
+    encoder_cache_manager: EncoderCacheManager | EncoderDecoderCacheManager
+    failed_recving_kv_req_ids: set[str]
+    finished_recving_kv_req_ids: set[str]
+    finished_req_ids: set[str]
+    finished_req_ids_dict: dict[int, set[str]] | None
+    kv_cache_manager: KVCacheManager
+    log_stats: bool
+    num_waiting_for_streaming_input: int
+    policy: SchedulingPolicy
+    requests: dict[str, Request]
+    running: list[Request]
+    skipped_waiting: RequestQueue
+    waiting: RequestQueue
+    _pause_state: PauseState
+
     def _update_request_as_session(
         self, session: Request, update: StreamingUpdate
     ) -> None:
@@ -194,7 +222,9 @@ class SchedulerQueueMixin:
     ) -> dict[str, Any] | None:
         assert request.is_finished()
 
-        connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+        connector_delay_free_blocks, kv_xfer_params = cast(
+            _SchedulerQueueHost, self
+        )._connector_finished(request)
         self.encoder_cache_manager.free(request)
         request_id = request.request_id
         self.finished_req_ids.add(request_id)

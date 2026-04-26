@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from __future__ import annotations
+
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Protocol, cast
 
 from vllm.distributed.kv_transfer.kv_connector.v1 import (
     KVConnectorBase_V1,
@@ -11,14 +13,35 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorMetadata,
 )
 from vllm.logger import init_logger
+from vllm.v1.core.kv_cache_manager import KVCacheManager
 from vllm.v1.core.sched.output import SchedulerOutput
+from vllm.v1.core.sched.request_queue import RequestQueue
+from vllm.v1.kv_cache_interface import KVCacheConfig
+from vllm.v1.metrics.stats import PrefixCacheStats
 from vllm.v1.outputs import KVConnectorOutput
 from vllm.v1.request import Request, RequestStatus
 
 logger = init_logger(__name__)
 
 
+class _SchedulerKVConnectorHost(Protocol):
+    def _free_blocks(self, request: Request): ...
+
+
 class SchedulerKVConnectorMixin:
+    block_size: int
+    connector: KVConnectorBase_V1 | None
+    connector_prefix_cache_stats: PrefixCacheStats | None
+    failed_recving_kv_req_ids: set[str]
+    finished_recving_kv_req_ids: set[str]
+    kv_cache_config: KVCacheConfig
+    kv_cache_manager: KVCacheManager
+    log_stats: bool
+    recompute_kv_load_failures: bool
+    requests: dict[str, Request]
+    running: list[Request]
+    skipped_waiting: RequestQueue
+
     def _build_kv_connector_meta(
         self, connector: KVConnectorBase_V1, scheduler_output: SchedulerOutput
     ) -> KVConnectorMetadata:
@@ -162,11 +185,13 @@ class SchedulerKVConnectorMixin:
                 self.finished_recving_kv_req_ids.add(req_id)
             else:
                 assert RequestStatus.is_finished(req.status)
-                self._free_blocks(self.requests[req_id])
+                cast(_SchedulerKVConnectorHost, self)._free_blocks(
+                    self.requests[req_id]
+                )
         for req_id in kv_connector_output.finished_sending or ():
             logger.debug("Finished sending KV transfer for request %s", req_id)
             assert req_id in self.requests
-            self._free_blocks(self.requests[req_id])
+            cast(_SchedulerKVConnectorHost, self)._free_blocks(self.requests[req_id])
 
     def _update_requests_with_invalid_blocks(
         self,

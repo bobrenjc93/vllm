@@ -1,12 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-import time
+from __future__ import annotations
 
+import time
+from typing import Protocol, cast
+
+from vllm.v1.core.encoder_cache_manager import (
+    EncoderCacheManager,
+    EncoderDecoderCacheManager,
+)
+from vllm.v1.core.kv_cache_manager import KVCacheManager
+from vllm.v1.core.sched.request_queue import RequestQueue
 from vllm.v1.engine import EngineCoreEventType
 from vllm.v1.request import Request, RequestStatus
 
 
+class _SchedulerPreemptionHost(Protocol):
+    def reset_connector_cache(self) -> bool: ...
+
+
 class SchedulerPreemptionMixin:
+    encoder_cache_manager: EncoderCacheManager | EncoderDecoderCacheManager
+    kv_cache_manager: KVCacheManager
+    log_stats: bool
+    prev_step_scheduled_req_ids: set[str]
+    running: list[Request]
+    waiting: RequestQueue
+
     def _preempt_request(self, request: Request, timestamp: float) -> None:
         """Preempt a request and put it back to the waiting queue.
 
@@ -71,6 +91,9 @@ class SchedulerPreemptionMixin:
             )
 
         if reset_connector:
-            reset_successful = self.reset_connector_cache() and reset_successful
+            reset_successful = (
+                cast(_SchedulerPreemptionHost, self).reset_connector_cache()
+                and reset_successful
+            )
 
         return reset_successful
