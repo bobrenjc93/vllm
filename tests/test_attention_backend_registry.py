@@ -164,8 +164,7 @@ def test_configured_attention_backend_class_attributes():
     assert CustomConfiguredAttentionBackend.get_impl_cls() is CustomAttentionImpl
     assert CustomConfiguredAttentionBackend.get_builder_cls() is CustomConfiguredBuilder
     assert (
-        CustomConfiguredAttentionBackend.get_metadata_cls()
-        is CustomConfiguredMetadata
+        CustomConfiguredAttentionBackend.get_metadata_cls() is CustomConfiguredMetadata
     )
     assert CustomConfiguredAttentionBackend.get_supported_head_sizes() == [64, 128]
     assert CustomConfiguredAttentionBackend.supports_head_size(64)
