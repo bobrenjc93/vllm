@@ -1228,20 +1228,24 @@ class VllmBackend:
                 if r.lower == 2:
                     fake_mode.shape_env.var_to_range[s] = ValueRanges(0, r.upper)
 
-        graph_path = os.path.join(local_cache_dir, "computation_graph.py")
-        if not os.path.exists(graph_path):
-            # code adapted from
-            # https://github.com/thuml/depyf/blob/dab831108a752d1facc00acdd6d4243891845c37/depyf/explain/patched_lazy_format_graph_code.py#L30
-            # use `print_readable` because it can include submodules
-            src = (
-                "from __future__ import annotations\nimport torch\n"
-                + self.split_gm.print_readable(print_output=False)
-            )
-            src = src.replace("<lambda>", "GraphModule")
-            with open(graph_path, "w") as f:
-                f.write(src)
-
-            logger.debug_once("Computation graph saved to %s", graph_path)
+        if os.environ.get("TORCH_TRACE") or logger.isEnabledFor(10):
+            graph_path = os.path.join(local_cache_dir, "computation_graph.py")
+            if not os.path.exists(graph_path):
+                # code adapted from
+                # https://github.com/thuml/depyf/blob/dab831108a752d1facc00acdd6d4243891845c37/depyf/explain/patched_lazy_format_graph_code.py#L30
+                # use `print_readable` because it can include submodules
+                src = (
+                    "from __future__ import annotations\nimport torch\n"
+                    + self.split_gm.print_readable(print_output=False)
+                )
+                src = src.replace("<lambda>", "GraphModule")
+                with open(graph_path, "w") as f:
+                    f.write(src)
+                logger.debug_once(
+                    "Computation graph saved to %s",
+                    graph_path,
+                    scope="local",
+                )
 
         self._called = True
         graph_to_serialize = (
