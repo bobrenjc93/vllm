@@ -49,7 +49,11 @@ from vllm.config.utils import (
     update_config,
 )
 from vllm.config.vllm import (
+    VllmCacheConfigGroup,
     VllmConfig,
+    VllmModelConfigGroup,
+    VllmObservabilityConfigGroup,
+    VllmRuntimeConfigGroup,
     get_cached_compilation_config,
     get_current_vllm_config,
     get_current_vllm_config_or_none,
@@ -127,7 +131,11 @@ __all__ = [
     "replace",
     "update_config",
     # From vllm.config.vllm
+    "VllmCacheConfigGroup",
     "VllmConfig",
+    "VllmModelConfigGroup",
+    "VllmObservabilityConfigGroup",
+    "VllmRuntimeConfigGroup",
     "get_cached_compilation_config",
     "get_current_vllm_config",
     "get_current_vllm_config_or_none",

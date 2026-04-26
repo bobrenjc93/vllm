@@ -15,7 +15,7 @@ from enum import IntEnum
 from functools import lru_cache
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar, get_args
 
 import torch
 from packaging.version import Version
@@ -261,6 +261,142 @@ OPTIMIZATION_LEVEL_TO_CONFIG = {
 }
 
 
+class _VllmConfigGroup:
+    """Proxy a logical VllmConfig section without changing flat fields."""
+
+    __slots__ = ("_config",)
+
+    _field_names: ClassVar[frozenset[str]] = frozenset()
+
+    def __init__(self, config: "VllmConfig") -> None:
+        object.__setattr__(self, "_config", config)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._field_names:
+            return getattr(self._config, name)
+        raise AttributeError(f"{type(self).__name__!s} has no field {name!r}")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_config":
+            object.__setattr__(self, name, value)
+        elif name in self._field_names:
+            setattr(self._config, name, value)
+        else:
+            raise AttributeError(f"{type(self).__name__!s} has no field {name!r}")
+
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | self._field_names)
+
+    def __repr__(self) -> str:
+        fields = ", ".join(
+            f"{name}={getattr(self._config, name)!r}"
+            for name in sorted(self._field_names)
+        )
+        return f"{type(self).__name__}({fields})"
+
+
+class VllmModelConfigGroup(_VllmConfigGroup):
+    """Model definition, loading, adaptation, and generation config group."""
+
+    __slots__ = ()
+
+    model_config: ModelConfig | None
+    load_config: LoadConfig
+    lora_config: LoRAConfig | None
+    speculative_config: SpeculativeConfig | None
+    structured_outputs_config: StructuredOutputsConfig
+    quant_config: QuantizationConfig | None
+    reasoning_config: ReasoningConfig | None
+    weight_transfer_config: WeightTransferConfig | None
+
+    _field_names = frozenset(
+        {
+            "model_config",
+            "load_config",
+            "lora_config",
+            "speculative_config",
+            "structured_outputs_config",
+            "quant_config",
+            "reasoning_config",
+            "weight_transfer_config",
+        }
+    )
+
+
+class VllmRuntimeConfigGroup(_VllmConfigGroup):
+    """Runtime placement, scheduling, kernels, and compilation config group."""
+
+    __slots__ = ()
+
+    parallel_config: ParallelConfig
+    scheduler_config: SchedulerConfig
+    device_config: DeviceConfig
+    offload_config: OffloadConfig
+    attention_config: AttentionConfig
+    mamba_config: MambaConfig
+    kernel_config: KernelConfig
+    compilation_config: CompilationConfig
+    additional_config: dict | SupportsHash
+    optimization_level: OptimizationLevel
+    performance_mode: PerformanceMode
+    shutdown_timeout: int
+
+    _field_names = frozenset(
+        {
+            "parallel_config",
+            "scheduler_config",
+            "device_config",
+            "offload_config",
+            "attention_config",
+            "mamba_config",
+            "kernel_config",
+            "compilation_config",
+            "additional_config",
+            "optimization_level",
+            "performance_mode",
+            "shutdown_timeout",
+        }
+    )
+
+
+class VllmCacheConfigGroup(_VllmConfigGroup):
+    """KV cache capacity, eventing, and transfer config group."""
+
+    __slots__ = ()
+
+    cache_config: CacheConfig
+    kv_transfer_config: KVTransferConfig | None
+    kv_events_config: KVEventsConfig | None
+    ec_transfer_config: ECTransferConfig | None
+
+    _field_names = frozenset(
+        {
+            "cache_config",
+            "kv_transfer_config",
+            "kv_events_config",
+            "ec_transfer_config",
+        }
+    )
+
+
+class VllmObservabilityConfigGroup(_VllmConfigGroup):
+    """Tracing, profiling, and instance identity config group."""
+
+    __slots__ = ()
+
+    observability_config: ObservabilityConfig
+    profiler_config: ProfilerConfig
+    instance_id: str
+
+    _field_names = frozenset(
+        {
+            "observability_config",
+            "profiler_config",
+            "instance_id",
+        }
+    )
+
+
 @config(config=ConfigDict(arbitrary_types_allowed=True))
 class VllmConfig:
     """Dataclass which contains all vllm-related configuration. This
@@ -354,6 +490,26 @@ class VllmConfig:
     up to this amount of time to allow already-running requests to complete. Any
     remaining requests are aborted once the timeout is reached.
     """
+
+    @property
+    def model(self) -> VllmModelConfigGroup:
+        """Grouped access to model-related config fields."""
+        return VllmModelConfigGroup(self)
+
+    @property
+    def runtime(self) -> VllmRuntimeConfigGroup:
+        """Grouped access to runtime-related config fields."""
+        return VllmRuntimeConfigGroup(self)
+
+    @property
+    def cache(self) -> VllmCacheConfigGroup:
+        """Grouped access to cache-related config fields."""
+        return VllmCacheConfigGroup(self)
+
+    @property
+    def observability(self) -> VllmObservabilityConfigGroup:
+        """Grouped access to observability-related config fields."""
+        return VllmObservabilityConfigGroup(self)
 
     def compute_hash(self) -> str:
         """
