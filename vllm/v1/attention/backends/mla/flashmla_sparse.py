@@ -18,12 +18,12 @@ from vllm.platforms.interface import DeviceCapability
 from vllm.utils.platform_utils import num_compute_units
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionLayer,
     AttentionMetadata,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
     SparseMLAAttentionImpl,
 )
@@ -77,7 +77,11 @@ structured as:
 """
 
 
-class FlashMLASparseBackend(AttentionBackend):
+class FlashMLASparseBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "FLASHMLA_SPARSE"
+    impl_cls: ClassVar[str] = "FlashMLASparseImpl"
+    builder_cls: ClassVar[str] = "FlashMLASparseMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [576]
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -89,22 +93,6 @@ class FlashMLASparseBackend(AttentionBackend):
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [64]
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASHMLA_SPARSE"
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashMLASparseMetadataBuilder"]:
-        return FlashMLASparseMetadataBuilder
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashMLASparseImpl"]:
-        return FlashMLASparseImpl
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [576]
 
     @classmethod
     def is_mla(cls) -> bool:

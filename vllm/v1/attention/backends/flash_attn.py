@@ -13,9 +13,9 @@ from vllm.model_executor.layers.attention import Attention
 from vllm.platforms import current_platform
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionImpl,
     AttentionType,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.fa_utils import (
@@ -63,7 +63,10 @@ from vllm.v1.kv_cache_interface import AttentionSpec
 logger = init_logger(__name__)
 
 
-class FlashAttentionBackend(AttentionBackend):
+class FlashAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "FLASH_ATTN"
+    impl_cls: ClassVar[str] = "FlashAttentionImpl"
+    builder_cls: ClassVar[str] = "FlashAttentionMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -99,10 +102,6 @@ class FlashAttentionBackend(AttentionBackend):
             return max(default_block_size, 64)
         return super().get_preferred_block_size(default_block_size)
 
-    @staticmethod
-    def get_name() -> str:
-        return "FLASH_ATTN"
-
     @classmethod
     def supports_batch_invariance(cls) -> bool:
         return True
@@ -125,14 +124,6 @@ class FlashAttentionBackend(AttentionBackend):
     def supports_per_head_quant_scales(cls) -> bool:
         fa_version = get_flash_attn_version()
         return fa_version is not None and fa_version >= 3
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashAttentionImpl"]:
-        return FlashAttentionImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashAttentionMetadataBuilder"]:
-        return FlashAttentionMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(

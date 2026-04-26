@@ -28,13 +28,13 @@ from vllm.model_executor.layers.attention.mla_attention import (
 from vllm.platforms.interface import DeviceCapability
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionLayer,
     AttentionMetadata,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
     SparseMLAAttentionImpl,
 )
@@ -52,12 +52,17 @@ logger = init_logger(__name__)
 FLASHINFER_MLA_SPARSE_WORKSPACE_BUFFER_SIZE = 128 * 1024 * 1024
 
 
-class FlashInferMLASparseBackend(AttentionBackend):
+class FlashInferMLASparseBackend(ConfiguredAttentionBackend):
     """FlashInfer MLA backend with sparse attention support.
 
     This backend uses the FlashInfer TRT-LLM MLA kernel with sparse_mla_top_k
     for models like DeepSeek-V3.2 that use index-based sparse attention.
     """
+
+    name: ClassVar[str] = "FLASHINFER_MLA_SPARSE"
+    impl_cls: ClassVar[str] = "FlashInferMLASparseImpl"
+    builder_cls: ClassVar[str] = "FlashInferMLASparseMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [576]
 
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
@@ -71,22 +76,6 @@ class FlashInferMLASparseBackend(AttentionBackend):
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [32, 64]
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASHINFER_MLA_SPARSE"
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashInferMLASparseImpl"]:
-        return FlashInferMLASparseImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashInferMLASparseMetadataBuilder"]:
-        return FlashInferMLASparseMetadataBuilder
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [576]
 
     @classmethod
     def is_mla(cls) -> bool:

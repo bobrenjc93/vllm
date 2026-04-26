@@ -28,7 +28,6 @@ from vllm.config import get_current_vllm_config
 from vllm.config.cache import CacheDType
 from vllm.triton_utils import triton
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionLayer,
@@ -36,6 +35,7 @@ from vllm.v1.attention.backend import (
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.fa_utils import (
@@ -80,8 +80,12 @@ def _build_hadamard_cached(d: int, device_str: str) -> torch.Tensor:
     return (H / math.sqrt(d)).to(torch.device(device_str))
 
 
-class TurboQuantAttentionBackend(AttentionBackend):
+class TurboQuantAttentionBackend(ConfiguredAttentionBackend):
     """Attention backend using TurboQuant KV-cache compression."""
+
+    name: ClassVar[str] = "TURBOQUANT"
+    impl_cls: ClassVar[str] = "TurboQuantAttentionImpl"
+    builder_cls: ClassVar[str] = "TurboQuantMetadataBuilder"
 
     accept_output_buffer: bool = True
     forward_includes_kv_cache_update: bool = False
@@ -98,10 +102,6 @@ class TurboQuantAttentionBackend(AttentionBackend):
     ]
 
     @staticmethod
-    def get_name() -> str:
-        return "TURBOQUANT"
-
-    @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [16, 32, 64, 128]
 
@@ -112,14 +112,6 @@ class TurboQuantAttentionBackend(AttentionBackend):
     @classmethod
     def supports_per_head_quant_scales(cls) -> bool:
         return False
-
-    @staticmethod
-    def get_impl_cls() -> type["TurboQuantAttentionImpl"]:
-        return TurboQuantAttentionImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["TurboQuantMetadataBuilder"]:
-        return TurboQuantMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(

@@ -49,12 +49,12 @@ from vllm.utils.torch_utils import (
     nvfp4_kv_cache_split_views,
 )
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.utils import (
@@ -323,7 +323,11 @@ class BatchDCPPrefillWrapper:
         return out
 
 
-class FlashInferBackend(AttentionBackend):
+class FlashInferBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "FLASHINFER"
+    impl_cls: ClassVar[str] = "FlashInferImpl"
+    builder_cls: ClassVar[str] = "FlashInferMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [64, 128, 256]
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -339,18 +343,6 @@ class FlashInferBackend(AttentionBackend):
         # Note: Not sure for all platforms, but on Blackwell,
         # only support a page size of 16, 32, 64.
         return [16, 32, 64]
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASHINFER"
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashInferImpl"]:
-        return FlashInferImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashInferMetadataBuilder"]:
-        return FlashInferMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(
@@ -395,11 +387,6 @@ class FlashInferBackend(AttentionBackend):
             return torch.float8_e5m2
         else:
             raise ValueError(f"Unrecognized FP8 dtype: {kv_cache_dtype}")
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        # https://github.com/flashinfer-ai/flashinfer/blob/3d55c71a62052c590c130897d3a3db49b14fcc34/include/flashinfer/utils.cuh#L157
-        return [64, 128, 256]
 
     @classmethod
     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:

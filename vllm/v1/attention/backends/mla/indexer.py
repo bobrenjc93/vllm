@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
 
@@ -16,10 +17,10 @@ from vllm.utils.deep_gemm import (
 from vllm.utils.math_utils import cdiv
 from vllm.utils.platform_utils import num_compute_units
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.utils import (
@@ -114,22 +115,14 @@ def split_indexer_prefill_chunks(
     return chunks
 
 
-class DeepseekV32IndexerBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "DEEPSEEK_V32_INDEXER"
+class DeepseekV32IndexerBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "DEEPSEEK_V32_INDEXER"
+    builder_cls: ClassVar[str] = "DeepseekV32IndexerMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [32, 64, 128]
 
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [1 if current_platform.is_rocm() else 64]
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [32, 64, 128]
-
-    @staticmethod
-    def get_builder_cls() -> type["DeepseekV32IndexerMetadataBuilder"]:
-        return DeepseekV32IndexerMetadataBuilder
 
     @staticmethod
     def get_kv_cache_shape(

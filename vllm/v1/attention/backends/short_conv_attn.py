@@ -2,21 +2,16 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from dataclasses import dataclass
 
-from vllm.v1.attention.backend import AttentionBackend
+from vllm.v1.attention.backend import ConfiguredAttentionBackend
 from vllm.v1.attention.backends.mamba_attn import (
     BaseMambaAttentionMetadata,
     BaseMambaAttentionMetadataBuilder,
 )
 
 
-class ShortConvAttentionBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "SHORT_CONV_ATTN"
-
-    @staticmethod
-    def get_builder_cls() -> type["ShortConvAttentionMetadataBuilder"]:
-        return ShortConvAttentionMetadataBuilder
+class ShortConvAttentionBackend(ConfiguredAttentionBackend):
+    name = "SHORT_CONV_ATTN"
+    builder_cls = "ShortConvAttentionMetadataBuilder"
 
     @classmethod
     def is_ssm(cls) -> bool:

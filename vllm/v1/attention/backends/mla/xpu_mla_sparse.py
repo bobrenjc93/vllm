@@ -15,12 +15,12 @@ from vllm.model_executor.layers.attention.mla_attention import (
 )
 from vllm.utils.torch_utils import is_quantized_kv_cache
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionLayer,
     AttentionMetadata,
     AttentionMetadataBuilder,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     SparseMLAAttentionImpl,
 )
 from vllm.v1.attention.backends.mla.flashmla_sparse import (
@@ -34,29 +34,18 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 
-class XPUMLASparseBackend(AttentionBackend):
+class XPUMLASparseBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "XPU_MLA_SPARSE"
+    metadata_cls: ClassVar[str] = "XPUMLASparseMetadata"
+    impl_cls: ClassVar[str] = "XPUMLASparseImpl"
+    builder_cls: ClassVar[str] = "XPUMLASparseMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [576]
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
         "float16",
         "bfloat16",
     ]
-
-    @staticmethod
-    def get_name() -> str:
-        return "XPU_MLA_SPARSE"
-
-    @staticmethod
-    def get_metadata_cls() -> type["XPUMLASparseMetadata"]:
-        return XPUMLASparseMetadata
-
-    @staticmethod
-    def get_builder_cls() -> type["XPUMLASparseMetadataBuilder"]:
-        return XPUMLASparseMetadataBuilder
-
-    @staticmethod
-    def get_impl_cls() -> type["XPUMLASparseImpl"]:
-        return XPUMLASparseImpl
 
     @classmethod
     def is_mla(cls) -> bool:
@@ -75,10 +64,6 @@ class XPUMLASparseBackend(AttentionBackend):
         cache_dtype_str: str = "auto",
     ) -> tuple[int, ...]:
         return (num_blocks, block_size, head_size)
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [576]
 
 
 @dataclass

@@ -28,6 +28,9 @@ logger = init_logger(__name__)
 
 
 class TritonMLABackend(MLACommonBackend):
+    name: ClassVar[str] = "TRITON_MLA"
+    impl_cls: ClassVar[str] = "TritonMLAImpl"
+    supported_head_sizes: ClassVar[list[int]] = []
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -36,10 +39,6 @@ class TritonMLABackend(MLACommonBackend):
         "fp8",
         "fp8_e4m3",
     ]
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return []
 
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
@@ -51,17 +50,9 @@ class TritonMLABackend(MLACommonBackend):
             return True
         return block_size % 16 == 0
 
-    @staticmethod
-    def get_name() -> str:
-        return "TRITON_MLA"
-
     @classmethod
     def supports_batch_invariance(cls) -> bool:
         return True
-
-    @staticmethod
-    def get_impl_cls() -> type["TritonMLAImpl"]:
-        return TritonMLAImpl
 
     @classmethod
     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:

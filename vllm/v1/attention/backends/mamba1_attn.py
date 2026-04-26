@@ -4,21 +4,19 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
-from vllm.v1.attention.backend import AttentionBackend, CommonAttentionMetadata
+from vllm.v1.attention.backend import (
+    CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
+)
 from vllm.v1.attention.backends.mamba_attn import (
     BaseMambaAttentionMetadata,
     BaseMambaAttentionMetadataBuilder,
 )
 
 
-class Mamba1AttentionBackend(AttentionBackend):
-    @staticmethod
-    def get_name() -> str:
-        return "MAMBA1_ATTN"
-
-    @staticmethod
-    def get_builder_cls() -> type["Mamba1AttentionMetadataBuilder"]:
-        return Mamba1AttentionMetadataBuilder
+class Mamba1AttentionBackend(ConfiguredAttentionBackend):
+    name = "MAMBA1_ATTN"
+    builder_cls = "Mamba1AttentionMetadataBuilder"
 
     @classmethod
     def is_ssm(cls) -> bool:

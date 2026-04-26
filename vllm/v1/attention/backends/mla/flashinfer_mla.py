@@ -36,6 +36,9 @@ class FlashInferMLAMetadataBuilder(MLACommonMetadataBuilder[MLACommonMetadata]):
 
 
 class FlashInferMLABackend(MLACommonBackend):
+    name: ClassVar[str] = "FLASHINFER_MLA"
+    impl_cls: ClassVar[str] = "FlashInferMLAImpl"
+    builder_cls: ClassVar[str] = "FlashInferMLAMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -48,18 +51,6 @@ class FlashInferMLABackend(MLACommonBackend):
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [32, 64]
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLASHINFER_MLA"
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashInferMLAImpl"]:
-        return FlashInferMLAImpl
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashInferMLAMetadataBuilder"]:
-        return FlashInferMLAMetadataBuilder
 
     @classmethod
     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:

@@ -13,11 +13,11 @@ from vllm.config import VllmConfig
 from vllm.config.cache import CacheDType
 from vllm.logger import init_logger
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionImpl,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
     MultipleOf,
 )
 from vllm.v1.attention.backends.utils import (
@@ -29,7 +29,20 @@ from vllm.v1.kv_cache_interface import AttentionSpec
 logger = init_logger(__name__)
 
 
-class TreeAttentionBackend(AttentionBackend):
+class TreeAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "TREE_ATTN"
+    impl_cls: ClassVar[str] = "TreeAttentionImpl"
+    builder_cls: ClassVar[str] = "TreeAttentionMetadataBuilder"
+    supported_head_sizes: ClassVar[list[int]] = [
+        32,
+        64,
+        96,
+        128,
+        160,
+        192,
+        224,
+        256,
+    ]
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -42,18 +55,6 @@ class TreeAttentionBackend(AttentionBackend):
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [MultipleOf(16)]
 
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return [32, 64, 96, 128, 160, 192, 224, 256]
-
-    @staticmethod
-    def get_name() -> str:
-        return "TREE_ATTN"
-
-    @staticmethod
-    def get_impl_cls() -> type["TreeAttentionImpl"]:
-        return TreeAttentionImpl
-
     @staticmethod
     def get_kv_cache_shape(
         num_blocks: int,
@@ -65,10 +66,6 @@ class TreeAttentionBackend(AttentionBackend):
         if block_size % 16 != 0:
             raise ValueError("Block size must be a multiple of 16.")
         return (2, num_blocks, block_size, num_kv_heads, head_size)
-
-    @staticmethod
-    def get_builder_cls() -> type["TreeAttentionMetadataBuilder"]:
-        return TreeAttentionMetadataBuilder
 
     @staticmethod
     def use_cascade_attention(*args, **kwargs) -> bool:

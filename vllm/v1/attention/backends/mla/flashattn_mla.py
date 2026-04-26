@@ -41,6 +41,9 @@ logger = init_logger(__name__)
 
 
 class FlashAttnMLABackend(MLACommonBackend):
+    name: ClassVar[str] = "FLASH_ATTN_MLA"
+    impl_cls: ClassVar[str] = "FlashAttnMLAImpl"
+    builder_cls: ClassVar[str] = "FlashAttnMLAMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [torch.float16, torch.bfloat16]
     supported_kv_cache_dtypes: ClassVar[list[CacheDType]] = [
         "auto",
@@ -52,21 +55,9 @@ class FlashAttnMLABackend(MLACommonBackend):
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
         return [MultipleOf(16)]
 
-    @staticmethod
-    def get_name() -> str:
-        return "FLASH_ATTN_MLA"
-
     @classmethod
     def supports_batch_invariance(cls) -> bool:
         return True
-
-    @staticmethod
-    def get_builder_cls() -> type["FlashAttnMLAMetadataBuilder"]:
-        return FlashAttnMLAMetadataBuilder
-
-    @staticmethod
-    def get_impl_cls() -> type["FlashAttnMLAImpl"]:
-        return FlashAttnMLAImpl
 
     @classmethod
     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:

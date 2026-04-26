@@ -29,12 +29,12 @@ from vllm.platforms import current_platform
 from vllm.utils.math_utils import cdiv
 from vllm.utils.torch_utils import is_quantized_kv_cache, is_torch_equal_or_newer
 from vllm.v1.attention.backend import (
-    AttentionBackend,
     AttentionCGSupport,
     AttentionImpl,
     AttentionMetadataBuilder,
     AttentionType,
     CommonAttentionMetadata,
+    ConfiguredAttentionBackend,
 )
 from vllm.v1.kv_cache_interface import AttentionSpec, EncoderOnlyAttentionSpec
 
@@ -72,7 +72,10 @@ def pad_to_multiple(x: torch.Tensor, multiple: int, dim: int):
     return F.pad(x, pad_list, mode="constant", value=0)
 
 
-class FlexAttentionBackend(AttentionBackend):
+class FlexAttentionBackend(ConfiguredAttentionBackend):
+    name: ClassVar[str] = "FLEX_ATTENTION"
+    impl_cls: ClassVar[str] = "FlexAttentionImpl"
+    builder_cls: ClassVar[str] = "FlexAttentionMetadataBuilder"
     supported_dtypes: ClassVar[list[torch.dtype]] = [
         torch.float16,
         torch.bfloat16,
@@ -85,10 +88,6 @@ class FlexAttentionBackend(AttentionBackend):
     ]
 
     forward_includes_kv_cache_update: bool = False
-
-    @staticmethod
-    def get_name() -> str:
-        return "FLEX_ATTENTION"
 
     @classmethod
     def supports_non_causal(cls) -> bool:
@@ -105,10 +104,6 @@ class FlexAttentionBackend(AttentionBackend):
         return True
 
     @staticmethod
-    def get_impl_cls() -> type["FlexAttentionImpl"]:
-        return FlexAttentionImpl
-
-    @staticmethod
     def get_kv_cache_shape(
         num_blocks: int,
         block_size: int,
@@ -119,16 +114,8 @@ class FlexAttentionBackend(AttentionBackend):
         return (2, num_blocks, block_size, num_kv_heads, head_size)
 
     @staticmethod
-    def get_builder_cls() -> type["FlexAttentionMetadataBuilder"]:
-        return FlexAttentionMetadataBuilder
-
-    @staticmethod
     def use_cascade_attention(*args, **kwargs) -> bool:
         return False
-
-    @classmethod
-    def get_supported_head_sizes(cls) -> list[int]:
-        return []
 
 
 # @torch.compile(fullgraph=True, mode="reduce-overhead")
