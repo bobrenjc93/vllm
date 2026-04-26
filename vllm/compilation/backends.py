@@ -55,6 +55,18 @@ from .passes.pass_manager import PostGradPassManager
 logger = init_logger(__name__)
 
 
+def _graph_structure_fingerprint(graph: fx.GraphModule) -> int:
+    import re
+
+    _DIGIT_RE = re.compile(r"\d+")
+    ops = []
+    for node in graph.graph.nodes:
+        target = str(node.target)
+        target = _DIGIT_RE.sub("N", target)
+        ops.append((node.op, target))
+    return hash(tuple(ops))
+
+
 def make_copy_and_call(
     sym_tensor_indices: list[int],
     input_buffers: list[torch.Tensor | None],
@@ -138,6 +150,7 @@ class CompilerManager:
     def __init__(self, compilation_config: CompilationConfig) -> None:
         self.cache: dict[tuple[Range, int, str], Any] = dict()
         self.is_cache_updated = False
+        self._fingerprint_to_artifact: dict[int, Any] = {}
         self.compilation_config = compilation_config
         self.compiler = make_compiler(compilation_config)
         self.loaded_artifacts: dict[str, Any] = {}
@@ -304,25 +317,15 @@ class CompilerManager:
             maybe_key = "artifact_compile_range_"
             maybe_key += f"{compile_range.start}_{compile_range.end}"
             maybe_key += f"_subgraph_{graph_index}"
+
+        # Fast structural fingerprint to skip expensive autograd_cache_key
+        # for duplicate subgraphs. autograd_cache_key hashes the full graph
+        # via pickle (~11ms each); this fingerprint takes <0.1ms.
+        graph_fp = _graph_structure_fingerprint(graph)
+        if graph_fp in self._fingerprint_to_artifact:
+            return self._fingerprint_to_artifact[graph_fp]
+
         with self.compile_context(compile_range):
-            # There is a compilation time optimization here.
-            #
-            # If the (input metadata, graph, compiler config) are the same, then
-            # we want to avoid compiling the same artifact again. If we didn't
-            # do this optimization, the backend compilation (InductorAdaptor or
-            # InductorStandaloneAdaptor)
-            # is able to cache hit and produce an artifact faster if it was
-            # already created, but it is still a duplicate artifact that
-            # requires unnecessary things e.g. disk IO.
-            #
-            # The optimization is: If the backend compilation cache hits,
-            # then do an early return from the backend compilation and look up
-            # which of the previous in-memory artifacts we created to reuse.
-            #
-            # We implemented this by monkey-patching torch (torch does not
-            # easily expose the cache_key function), but in the future torch
-            # should expose the cache_key function that we can just call
-            # directly before invoking backend compilation.
             cache_key = None
             orig = torch._functorch._aot_autograd.autograd_cache.autograd_cache_key
 
@@ -357,11 +360,14 @@ class CompilerManager:
                     )
                 except StopCompiling:
                     assert cache_key is not None
-                    return self.loaded_artifacts[cache_key]
+                    artifact = self.loaded_artifacts[cache_key]
+                    self._fingerprint_to_artifact[graph_fp] = artifact
+                    return artifact
             if cache_key is not None and compiled_graph is not None:
                 self.loaded_artifacts[cache_key] = compiled_graph
 
         assert compiled_graph is not None, "Failed to compile the graph"
+        self._fingerprint_to_artifact[graph_fp] = compiled_graph
 
         # store the artifact in the cache
         if is_compile_cache_enabled(additional_inductor_config) and handle is not None:
