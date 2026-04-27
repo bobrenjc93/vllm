@@ -1241,11 +1241,7 @@ class VllmBackend:
                 src = src.replace("<lambda>", "GraphModule")
                 with open(graph_path, "w") as f:
                     f.write(src)
-                logger.debug_once(
-                    "Computation graph saved to %s",
-                    graph_path,
-                    scope="local",
-                )
+                logger.debug_once("Computation graph saved to %s", graph_path)
 
         self._called = True
         graph_to_serialize = (
