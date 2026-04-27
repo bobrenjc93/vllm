@@ -8,6 +8,7 @@ import json
 import operator
 import os
 import pprint
+import re
 import time
 from collections import defaultdict
 from collections.abc import Callable, Generator, Sequence
@@ -55,15 +56,29 @@ from .passes.pass_manager import PostGradPassManager
 logger = init_logger(__name__)
 
 
-def _graph_structure_fingerprint(graph: fx.GraphModule) -> int:
-    import re
+_DIGIT_RE = re.compile(r"\d+")
 
-    _DIGIT_RE = re.compile(r"\d+")
+
+def _graph_structure_fingerprint(graph: fx.GraphModule) -> int:
+    node_to_idx = {node: i for i, node in enumerate(graph.graph.nodes)}
+
+    def _map_arg(arg: Any) -> Any:
+        if isinstance(arg, fx.Node):
+            return node_to_idx[arg]
+        if isinstance(arg, (list, tuple)):
+            return tuple(_map_arg(a) for a in arg)
+        if isinstance(arg, dict):
+            return tuple((k, _map_arg(v)) for k, v in sorted(arg.items()))
+        return str(arg)
+
     ops = []
     for node in graph.graph.nodes:
         target = str(node.target)
         target = _DIGIT_RE.sub("N", target)
-        ops.append((node.op, target))
+        meta = node.meta.get("example_value")
+        dtype = getattr(meta, "dtype", None)
+        ops.append((node.op, target, dtype,
+                     _map_arg(node.args), _map_arg(node.kwargs)))
     return hash(tuple(ops))
 
 
@@ -150,7 +165,7 @@ class CompilerManager:
     def __init__(self, compilation_config: CompilationConfig) -> None:
         self.cache: dict[tuple[Range, int, str], Any] = dict()
         self.is_cache_updated = False
-        self._fingerprint_to_artifact: dict[int, Any] = {}
+        self._fingerprint_to_artifact: dict[tuple[int, Range, bool], Any] = {}
         self.compilation_config = compilation_config
         self.compiler = make_compiler(compilation_config)
         self.loaded_artifacts: dict[str, Any] = {}
@@ -322,8 +337,9 @@ class CompilerManager:
         # for duplicate subgraphs. autograd_cache_key hashes the full graph
         # via pickle (~11ms each); this fingerprint takes <0.1ms.
         graph_fp = _graph_structure_fingerprint(graph)
-        if graph_fp in self._fingerprint_to_artifact:
-            return self._fingerprint_to_artifact[graph_fp]
+        fp_key = (graph_fp, compile_range, is_encoder)
+        if fp_key in self._fingerprint_to_artifact:
+            return self._fingerprint_to_artifact[fp_key]
 
         with self.compile_context(compile_range):
             cache_key = None
@@ -361,13 +377,13 @@ class CompilerManager:
                 except StopCompiling:
                     assert cache_key is not None
                     artifact = self.loaded_artifacts[cache_key]
-                    self._fingerprint_to_artifact[graph_fp] = artifact
+                    self._fingerprint_to_artifact[fp_key] = artifact
                     return artifact
             if cache_key is not None and compiled_graph is not None:
                 self.loaded_artifacts[cache_key] = compiled_graph
 
         assert compiled_graph is not None, "Failed to compile the graph"
-        self._fingerprint_to_artifact[graph_fp] = compiled_graph
+        self._fingerprint_to_artifact[fp_key] = compiled_graph
 
         # store the artifact in the cache
         if is_compile_cache_enabled(additional_inductor_config) and handle is not None:
