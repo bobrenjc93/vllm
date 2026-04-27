@@ -22,11 +22,10 @@ def _make_cached_getsourcelines():
 
     def _cached(obj):
         key = id(obj)
-        result = _cache.get(key)
-        if result is None:
-            result = _original(obj)
-            _cache[key] = result
-        return result
+        if key not in _cache:
+            _cache[key] = _original(obj)
+        lines, lnum = _cache[key]
+        return list(lines), lnum
 
     return _cached
 
