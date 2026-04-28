@@ -255,14 +255,17 @@ class VllmSerializableFunction(SerializableCallable):  # type: ignore[misc]
         state.pop("shape_env")
         state.pop("vllm_backend", None)
         state.pop("_fake_mode", None)
-        for node in state["graph_module"].graph.nodes:
-            node.meta.pop("source_fn_stack", None)
-            node.meta.pop("nn_module_stack", None)
-        for name, submod in state["graph_module"].named_children():
-            if hasattr(submod, "graph"):
-                for node in submod.graph.nodes:
-                    node.meta.pop("source_fn_stack", None)
-                    node.meta.pop("nn_module_stack", None)
+        _strip_keys = ("source_fn_stack", "nn_module_stack", "stack_trace")
+        graphs = [state["graph_module"].graph]
+        graphs.extend(
+            submod.graph
+            for submod in state["graph_module"].children()
+            if hasattr(submod, "graph")
+        )
+        for graph in graphs:
+            for node in graph.nodes:
+                for k in _strip_keys:
+                    node.meta.pop(k, None)
 
         if state.get("sym_tensor_indices"):
             # put tensor inputs on meta device since their data

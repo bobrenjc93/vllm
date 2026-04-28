@@ -185,6 +185,46 @@ def test_save_and_load_slice(monkeypatch: pytest.MonkeyPatch):
     assert gm.code == loaded_gm.code
 
 
+def test_serialize_compile_artifacts_strips_debug_node_metadata():
+    def add_1(x: torch.Tensor):
+        return x + 1
+
+    def mul_2(x: torch.Tensor):
+        return x * 2
+
+    graph_module = torch.fx.symbolic_trace(add_1)
+    child_graph_module = torch.fx.symbolic_trace(mul_2)
+    graph_module.add_module("child", child_graph_module)
+
+    debug_meta = {
+        "source_fn_stack": "source",
+        "nn_module_stack": "module",
+        "stack_trace": "trace",
+        "example_value": "keep",
+    }
+    for graph in (graph_module.graph, child_graph_module.graph):
+        for node in graph.nodes:
+            node.meta.update(debug_meta)
+
+    fn = VllmSerializableFunction(
+        graph_module, (torch.randn(2),), "", optimized_call=add_1
+    )
+
+    with patch.object(
+        VllmSerializableFunction,
+        "serialize_graph_module",
+        return_value=b"serialized_graph_module",
+    ):
+        VllmSerializableFunction.serialize_compile_artifacts(fn)
+
+    for graph in (graph_module.graph, child_graph_module.graph):
+        for node in graph.nodes:
+            assert "source_fn_stack" not in node.meta
+            assert "nn_module_stack" not in node.meta
+            assert "stack_trace" not in node.meta
+            assert node.meta["example_value"] == "keep"
+
+
 @pytest.mark.skipif(not is_torch_equal_or_newer("2.10.0"), reason="requires torch 2.10")
 def test_cache_load_returns_tuple_consistency(monkeypatch: pytest.MonkeyPatch):
     """
