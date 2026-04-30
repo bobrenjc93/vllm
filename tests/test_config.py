@@ -3,7 +3,7 @@
 
 import logging
 import os
-from dataclasses import MISSING, Field, asdict, dataclass, field
+from dataclasses import MISSING, Field, asdict, dataclass, field, fields
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,14 +14,20 @@ from pydantic import ValidationError
 import vllm.config.vllm as vllm_config_module
 from vllm.compilation.backends import VllmBackend
 from vllm.config import (
+    CacheConfig,
     CompilationConfig,
+    DeviceConfig,
     KernelConfig,
     ModelConfig,
     ParallelConfig,
     PoolerConfig,
     SchedulerConfig,
     SpeculativeConfig,
+    VllmCacheConfigGroup,
     VllmConfig,
+    VllmModelConfigGroup,
+    VllmObservabilityConfigGroup,
+    VllmRuntimeConfigGroup,
     update_config,
 )
 from vllm.config.compilation import CompilationMode, CUDAGraphMode
@@ -515,6 +521,99 @@ def test_load_config_pt_load_map_location(pt_load_map_location):
     config = VllmConfig(load_config=load_config)
 
     assert config.load_config.pt_load_map_location == pt_load_map_location
+
+
+def _make_grouped_view_test_config():
+    return VllmConfig(device_config=DeviceConfig("cpu"))
+
+
+@pytest.mark.skip_global_cleanup
+def test_vllm_config_grouped_views_cover_flat_fields():
+    config = _make_grouped_view_test_config()
+    grouped_fields = {
+        config.model: {
+            "model_config",
+            "load_config",
+            "lora_config",
+            "speculative_config",
+            "structured_outputs_config",
+            "quant_config",
+            "reasoning_config",
+            "weight_transfer_config",
+        },
+        config.runtime: {
+            "parallel_config",
+            "scheduler_config",
+            "device_config",
+            "offload_config",
+            "attention_config",
+            "mamba_config",
+            "kernel_config",
+            "compilation_config",
+            "additional_config",
+            "optimization_level",
+            "performance_mode",
+            "shutdown_timeout",
+        },
+        config.cache: {
+            "cache_config",
+            "kv_transfer_config",
+            "kv_events_config",
+            "ec_transfer_config",
+        },
+        config.observability: {
+            "observability_config",
+            "profiler_config",
+            "instance_id",
+        },
+    }
+
+    assert isinstance(config.model, VllmModelConfigGroup)
+    assert isinstance(config.runtime, VllmRuntimeConfigGroup)
+    assert isinstance(config.cache, VllmCacheConfigGroup)
+    assert isinstance(config.observability, VllmObservabilityConfigGroup)
+
+    covered_fields = set()
+    for group, field_names in grouped_fields.items():
+        covered_fields.update(field_names)
+        for field_name in field_names:
+            assert getattr(group, field_name) is getattr(config, field_name)
+
+    assert covered_fields == {field.name for field in fields(VllmConfig)}
+
+
+@pytest.mark.skip_global_cleanup
+def test_vllm_config_grouped_views_write_through_to_flat_fields():
+    config = _make_grouped_view_test_config()
+
+    load_config = LoadConfig()
+    config.model.load_config = load_config
+    assert config.load_config is load_config
+    assert config.model.load_config is load_config
+
+    config.runtime.performance_mode = "throughput"
+    assert config.performance_mode == "throughput"
+    assert config.runtime.performance_mode == "throughput"
+
+    cache_config = CacheConfig()
+    config.cache.cache_config = cache_config
+    assert config.cache_config is cache_config
+    assert config.cache.cache_config is cache_config
+
+    config.observability.instance_id = "grouped-view-test"
+    assert config.instance_id == "grouped-view-test"
+    assert config.observability.instance_id == "grouped-view-test"
+
+
+@pytest.mark.skip_global_cleanup
+def test_vllm_config_grouped_views_reject_unknown_fields():
+    config = _make_grouped_view_test_config()
+
+    with pytest.raises(AttributeError):
+        _ = config.model.not_a_config_field
+
+    with pytest.raises(AttributeError):
+        config.runtime.not_a_config_field = object()
 
 
 @pytest.mark.parametrize(
