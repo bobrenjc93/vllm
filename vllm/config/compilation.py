@@ -660,6 +660,14 @@ class CompilationConfig:
     capture ignores all partitioning.
     """
 
+    use_nested_compile_regions: bool = False
+    """When True, decorator layers' forward methods are wrapped with
+    torch.compiler.nested_compile_region so that Dynamo traces a single
+    layer once and stamps out cached copies for all remaining layers.
+    This significantly reduces Inductor compile time for inference
+    (no backward pass) by avoiding redundant lowering, scheduling, and
+    codegen for structurally-identical layers."""
+
     pass_config: PassConfig = field(default_factory=PassConfig)
     """Custom inductor passes, see PassConfig for more details"""
 

@@ -617,6 +617,58 @@ class PPMissingLayer(torch.nn.Identity):
         return args[0] if args else next(iter(kwargs.values()))
 
 
+def _maybe_apply_nested_compile_region(
+    modules: torch.nn.ModuleList,
+    start_layer: int,
+    end_layer: int,
+) -> None:
+    """Wrap each real (non-PP-missing) layer's forward method with
+    torch.compiler.nested_compile_region so that Dynamo traces one
+    layer and stamps out cached copies for the rest.
+
+    Uses dynamic subclassing so that the original layer class is
+    never mutated — only the opted-in instances get the wrapped
+    forward.  All instances of the same original class share the
+    same dynamic subclass (and therefore the same ``__code__``
+    object), which is the key used by the invoke_subgraph reuse
+    cache.
+
+    invoke_subgraph does not support input-to-output aliasing (e.g.
+    ``residual = hidden_states`` in the first decoder layer when
+    residual is None).  The wrapper clones every tensor output so
+    that any such alias is broken.  Inductor fuses the trivial
+    clones away, so there is no runtime cost.
+    """
+
+    def _make_ncr_forward(fwd):
+        @torch.compiler.nested_compile_region
+        def ncr_forward(self, *args, **kwargs):
+            outputs = fwd(self, *args, **kwargs)
+            if isinstance(outputs, tuple):
+                return tuple(
+                    o.clone() if isinstance(o, torch.Tensor) else o
+                    for o in outputs
+                )
+            if isinstance(outputs, torch.Tensor):
+                return outputs.clone()
+            return outputs
+        return ncr_forward
+
+    wrapped_classes: dict[type, type] = {}
+    for idx in range(start_layer, end_layer):
+        layer = modules[idx]
+        original_cls = type(layer)
+
+        if original_cls not in wrapped_classes:
+            wrapped_classes[original_cls] = type(
+                f"{original_cls.__name__}_NCR",
+                (original_cls,),
+                {"forward": _make_ncr_forward(original_cls.forward)},
+            )
+
+        layer.__class__ = wrapped_classes[original_cls]
+
+
 def make_layers(
     num_hidden_layers: int,
     layer_fn: LayerFn,
@@ -633,6 +685,7 @@ def make_layers(
     Returns:
         Tuple of (start_layer, end_layer, modules).
     """
+    from vllm.config import get_current_vllm_config
     from vllm.distributed.parallel_state import get_pp_group
     from vllm.distributed.utils import get_pp_indices
     from vllm.model_executor.offloader import get_offloader
@@ -648,6 +701,10 @@ def make_layers(
         )
         + [PPMissingLayer() for _ in range(end_layer, num_hidden_layers)]
     )
+
+    vllm_config = get_current_vllm_config()
+    if vllm_config.compilation_config.use_nested_compile_regions:
+        _maybe_apply_nested_compile_region(modules, start_layer, end_layer)
 
     return start_layer, end_layer, modules
 

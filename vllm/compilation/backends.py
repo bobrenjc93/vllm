@@ -1141,6 +1141,13 @@ class VllmBackend:
         assert not self._called, "VllmBackend can only be called once"
 
         self.graph = graph
+
+        if self.compilation_config.use_nested_compile_regions:
+            from torch._higher_order_ops.passes.inline_invoke_subgraph import (
+                inline_invoke_subgraph,
+            )
+            self.graph = inline_invoke_subgraph(self.graph)
+
         self.configure_post_pass()
 
         if self.compilation_config.use_inductor_graph_partition:
