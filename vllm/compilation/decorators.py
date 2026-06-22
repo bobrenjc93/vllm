@@ -460,6 +460,31 @@ def _support_torch_compile(
                             torch._dynamo.decorators.mark_unbacked(arg, dims)
 
     def __call__(self: type[_T], *args: Any, **kwargs: Any) -> Any:
+        # EXPERIMENTAL: route the forward through torch.compiler.precompile (a make_fx
+        # AOT trace -> portable (python_code, cache) artifact) instead of torch.compile
+        # + the VllmBackend. Placed before the do_not_compile short-circuit so it runs
+        # under enforce_eager, whose native-op dispatch (RoPE/RMSNorm as aten; MoE and
+        # attention stay opaque ops reading the live forward context) is exactly what
+        # make_fx traces cleanly. num_tokens is marked UNBACKED so one artifact serves
+        # every token count. Gated by VLLM_USE_PRECOMPILE=1.
+        if (
+            os.environ.get("VLLM_USE_PRECOMPILE") == "1"
+            and not torch.compiler.is_compiling()
+        ):
+            # Use precompile only for REAL forwards (attn_metadata present). The
+            # profile/dummy run has attn_metadata=None: attention short-circuits to
+            # output.fill_(0), which under profiling's memory conditions hits the
+            # inductor-owned output buffer badly, AND it runs before vLLM has cast
+            # lazily-materialized buffers (e.g. rotary cos_sin_cache) to the model
+            # dtype. Build LAZILY on the first real forward so the trace sees the
+            # final buffer dtypes (invariant 2) and matches at runtime.
+            fc = get_forward_context() if is_forward_context_available() else None
+            if fc is None or fc.attn_metadata is not None:
+                if getattr(self, "aot_compiled_fn", None) is None:
+                    self.aot_compiled_fn = _build_precompile_fn(self, args, kwargs)
+                with maybe_use_cudagraph_partition_wrapper(self.vllm_config):
+                    return self.aot_compiled_fn(self, *args, **kwargs)
+
         # torch.compiler.is_compiling() means we are inside the compilation
         # e.g. TPU has the compilation logic in model runner, so we don't
         # need to compile the model inside.
@@ -679,6 +704,54 @@ def _support_torch_compile(
     cls.__call__ = __call__
     cls.save_aot_compiled_function = save_aot_compiled_function
     return cls
+
+
+def _build_precompile_fn(model: nn.Module, args: tuple, kwargs: dict) -> Any:
+    """AOT-trace ``model.forward`` once via ``torch.compiler.precompile`` and return
+    a callable with the ``aot_compiled_fn(self, *args, **kwargs)`` contract that runs
+    the portable artifact. Only tensor inputs are passed to precompile; non-tensor
+    forward args (e.g. ``intermediate_tensors=None``) are baked into the artifact.
+    """
+    sig = inspect.signature(model.forward)
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+    names = list(bound.arguments.keys())
+    vals = [bound.arguments[n] for n in names]
+    tensor_idx = [i for i, v in enumerate(vals) if isinstance(v, torch.Tensor)]
+    baked = [None if i in tensor_idx else v for i, v in enumerate(vals)]
+
+    def _fn(m: nn.Module, *tensors: torch.Tensor) -> Any:
+        full = list(baked)
+        for j, i in enumerate(tensor_idx):
+            full[i] = tensors[j]
+        return m.forward(*full)
+
+    example_tensors = [vals[i] for i in tensor_idx]
+    # Mark the num_tokens dim (0) UNBACKED with one shared shape_id so a single
+    # artifact serves every token count. No hint_override: precompile does not
+    # specialize on hints (unlike vLLM's torch.compile path).
+    from torch._dynamo.decorators import mark_unbacked
+
+    for t in example_tensors:
+        mark_unbacked(t, 0, shape_id="vllm_num_tokens")
+    code, cache = torch.compiler.precompile(
+        _fn, model, *example_tensors, backend="inductor"
+    )
+    loaded = torch.compiler.precompile.load(code, cache)
+    logger.info(
+        "[precompile] built artifact for %s: python_code=%d B, cache=%d B",
+        type(model).__name__,
+        len(code),
+        len(cache or b""),
+    )
+
+    def aot_fn(self: nn.Module, *a: Any, **kw: Any) -> Any:
+        b = sig.bind(*a, **kw)
+        b.apply_defaults()
+        v = [b.arguments[n] for n in names]
+        return loaded(self, *[v[i] for i in tensor_idx])
+
+    return aot_fn
 
 
 @contextlib.contextmanager
